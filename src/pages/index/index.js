@@ -28,7 +28,7 @@ import VConsole from 'vconsole';
 import 'js/jquery.js';
 import TransWorker from 'js/transcode.worker.js';
 import './index.css';
-
+import HZRecorder from 'js/HZRecorder';
 let transWorker = new TransWorker();
 //APPID，APISecret，APIKey在控制台-我的应用-语音听写（流式版）页面获取
 const APPID = 'c4e048be';
@@ -189,6 +189,7 @@ class IatRecorder {
         }
         // 获取浏览器录音权限成功的回调
         let getMediaSuccess = stream => {
+            // let  recorder =  new HZRecorder(stream)
             console.log('getMediaSuccess');
             // 创建一个用于通过JavaScript直接处理音频
             this.scriptProcessor = this.audioContext.createScriptProcessor(0, 1, 1);
