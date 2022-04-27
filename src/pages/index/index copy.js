@@ -26,10 +26,9 @@ import CryptoJS from 'crypto-js';
 import Enc from 'enc';
 import VConsole from 'vconsole';
 import 'js/jquery.js';
-import MP3Worker from 'js/encodemp3.worker.js';
 import TransWorker from 'js/transcode.worker.js';
 import './index.css';
-let transMP3Worker = new MP3Worker();
+import HZRecorder from 'js/HZRecorder';
 let transWorker = new TransWorker();
 //APPID，APISecret，APIKey在控制台-我的应用-语音听写（流式版）页面获取
 const APPID = 'c4e048be';
@@ -60,193 +59,21 @@ function getWebSocketUrl() {
     });
 }
 class IatRecorder {
-    constructor({ language, accent, appId, sampleRate, numChannels, sampleBits } = {}) {
+    constructor({ language, accent, appId } = {}) {
         let self = this;
         this.status = 'null';
         this.language = language || 'zh_cn';
         this.accent = accent || 'mandarin';
         this.appId = appId || APPID;
-        this.size = 0; // 录音文件长度
-        this.buffer = []; // 录音缓存
-        this.mp3Data = [];
-        this.numChannels = numChannels || 1;
-        // this.inputSampleRate: context.sampleRate, // 输入采样率
-        this.inputSampleBits = 16; // 输入采样数位
-        this.outputSampleRate = sampleRate; // 输出采样率
-        this.oututSampleBits = sampleBits || 128; // 输出采样数位
         // 记录音频数据
         this.audioData = [];
         // 记录听写结果
         this.resultText = '';
         // wpgs下的听写结果需要中间状态辅助记录
         this.resultTextTemp = '';
-        // pcm 编码
         transWorker.onmessage = function (event) {
             self.audioData.push(...event.data);
         };
-        //transMP3Worker
-        transMP3Worker.onmessage = function (event) {
-            if (event.cmd == 'complete') {
-                self.mp3Data = new Blob(event.data, { type: 'audio/mp3' });
-            }
-        };
-    }
-
-    inputBuffer(data) {
-        this.buffer.push(new Float32Array(data));
-        this.size += data.length;
-    }
-    compress() {
-        //合并
-        var data = new Float32Array(this.size);
-        var offset = 0;
-        for (var i = 0; i < this.buffer.length; i++) {
-            data.set(this.buffer[i], offset);
-            offset += this.buffer[i].length;
-        }
-        //压缩
-        var compression = parseInt(this.inputSampleRate / this.outputSampleRate);
-        var length = data.length / compression;
-        var result = new Float32Array(length);
-        var index = 0,
-            j = 0;
-        while (index < length) {
-            result[index] = data[j];
-            j += compression;
-            index++;
-        }
-        return result;
-    }
-    // wav格式
-    encodeWAV() {
-        var sampleRate = Math.min(this.inputSampleRate, this.outputSampleRate);
-        var sampleBits = Math.min(this.inputSampleBits, this.oututSampleBits);
-        var bytes = this.compress();
-        var dataLength = bytes.length * (sampleBits / 8);
-        var buffer = new ArrayBuffer(44 + dataLength);
-        var data = new DataView(buffer);
-
-        var channelCount = 1; // 单声道
-        var offset = 0;
-
-        var writeString = function (str) {
-            for (var i = 0; i < str.length; i++) {
-                data.setUint8(offset + i, str.charCodeAt(i));
-            }
-        };
-
-        // 资源交换文件标识符
-        writeString('RIFF');
-        offset += 4;
-        // 下个地址开始到文件尾总字节数,即文件大小-8
-        data.setUint32(offset, 36 + dataLength, true);
-        offset += 4;
-        // WAV文件标志
-        writeString('WAVE');
-        offset += 4;
-        // 波形格式标志
-        writeString('fmt ');
-        offset += 4;
-        // 过滤字节,一般为 0x10 = 16
-        data.setUint32(offset, 16, true);
-        offset += 4;
-        // 格式类别 (PCM形式采样数据)
-        data.setUint16(offset, 1, true);
-        offset += 2;
-        // 通道数
-        data.setUint16(offset, channelCount, true);
-        offset += 2;
-        // 采样率,每秒样本数,表示每个通道的播放速度
-        data.setUint32(offset, sampleRate, true);
-        offset += 4;
-        // 波形数据传输率 (每秒平均字节数) 单声道×每秒数据位数×每样本数据位/8
-        data.setUint32(offset, channelCount * sampleRate * (sampleBits / 8), true);
-        offset += 4;
-        // 快数据调整数 采样一次占用字节数 单声道×每样本的数据位数/8
-        data.setUint16(offset, channelCount * (sampleBits / 8), true);
-        offset += 2;
-        // 每样本数据位数
-        data.setUint16(offset, sampleBits, true);
-        offset += 2;
-        // 数据标识符
-        writeString('data');
-        offset += 4;
-        // 采样数据总数,即数据总大小-44
-        data.setUint32(offset, dataLength, true);
-        offset += 4;
-        // 写入采样数据
-        if (sampleBits === 8) {
-            for (var i = 0; i < bytes.length; i++, offset++) {
-                var s = Math.max(-1, Math.min(1, bytes[i]));
-                var val = s < 0 ? s * 0x8000 : s * 0x7fff;
-                val = parseInt(255 / (65535 / (val + 32768)));
-                data.setInt8(offset, val, true);
-            }
-        } else {
-            for (var i = 0; i < bytes.length; i++, offset += 2) {
-                var s = Math.max(-1, Math.min(1, bytes[i]));
-                data.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-            }
-        }
-
-        return new Blob([data], { type: 'audio/wav' });
-    }
-    //mp3格式
-    encodeMP3() {}
-    // 获取音频文件
-    getBlob(type) {
-        switch (type) {
-            case 'wav':
-                return audioData.encodeWAV();
-            case 'mp3':
-                return this.mp3Data;
-            default:
-                return audioData.encodeMP3();
-        }
-    }
-
-    // 播放
-    play(audio) {
-        audio.src = window.URL.createObjectURL(this.getBlob());
-    }
-
-    // 上传
-    upload(url, callback) {
-        var fd = new FormData();
-        fd.append('audioData', this.getBlob());
-        var xhr = new XMLHttpRequest();
-        if (callback) {
-            xhr.upload.addEventListener(
-                'progress',
-                function (e) {
-                    callback('uploading', e);
-                },
-                false
-            );
-            xhr.addEventListener(
-                'load',
-                function (e) {
-                    callback('ok', e);
-                },
-                false
-            );
-            xhr.addEventListener(
-                'error',
-                function (e) {
-                    callback('error', e);
-                },
-                false
-            );
-            xhr.addEventListener(
-                'abort',
-                function (e) {
-                    callback('cancel', e);
-                },
-                false
-            );
-        }
-        xhr.open('POST', url);
-        xhr.send(fd);
     }
     // 修改录音听写状态
     setStatus(status) {
@@ -308,18 +135,7 @@ class IatRecorder {
         // 创建音频环境
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            this.inputSampleRate = this.audioContext.sampleRate;
             this.audioContext.resume();
-            transMP3Worker.postMessage({
-                cmd: 'init',
-                data: {
-                    numChannels: this.numChannels,
-                    sampleBits: this.inputSampleBits,
-                    inputSampleRate: this.inputSampleRate,
-                    outputSampleRate: this.outputSampleRate,
-                    bitRate: this.oututSampleBits,
-                },
-            });
             if (!this.audioContext) {
                 alert('浏览器不支持webAudioApi相关接口');
                 return;
@@ -380,15 +196,6 @@ class IatRecorder {
             this.scriptProcessor.onaudioprocess = e => {
                 // 去处理音频数据
                 if (this.status === 'ing') {
-                    console.log('录制过程中的音频数据', e);
-                    // this.inputBuffer(e.inputBuffer.getChannelData(0));
-                    var data = [],
-                        i = 0;
-                    for (; i < this.numChannels; i++) {
-                        data.push(e.inputBuffer.getChannelData(i));
-                    }
-
-                    transMP3Worker.postMessage({ cmd: 'encode', data: data });
                     transWorker.postMessage(e.inputBuffer.getChannelData(0));
                 }
             };
@@ -397,8 +204,7 @@ class IatRecorder {
             // 连接
             this.mediaSource.connect(this.scriptProcessor);
             this.scriptProcessor.connect(this.audioContext.destination);
-            //开启webSocket
-            // this.connectWebSocket();
+            this.connectWebSocket();
         };
 
         let getMediaFail = e => {
@@ -407,22 +213,17 @@ class IatRecorder {
             this.audioContext && this.audioContext.close();
             this.audioContext = undefined;
             // 关闭websocket
-            // if (this.webSocket && this.webSocket.readyState === 1) {
-            //     this.webSocket.close();
-            // }
+            if (this.webSocket && this.webSocket.readyState === 1) {
+                this.webSocket.close();
+            }
         };
     }
     recorderStart() {
-        try {
-            console.log('recorderStart');
-            if (!this.audioContext) {
-                this.recorderInit();
-            } else {
-                this.audioContext.resume();
-                // this.connectWebSocket();
-            }
-        } catch (error) {
-            console.log('recorderStart', error);
+        if (!this.audioContext) {
+            this.recorderInit();
+        } else {
+            this.audioContext.resume();
+            this.connectWebSocket();
         }
     }
     // 暂停录音
@@ -511,7 +312,6 @@ class IatRecorder {
             );
         }, 40);
     }
-    //处理webSocket传来的消息
     result(resultData) {
         // 识别结束
         let jsonData = JSON.parse(resultData);
@@ -556,7 +356,6 @@ class IatRecorder {
     }
     stop() {
         this.recorderStop();
-        transMP3Worker.postMessage({ cmd: 'stop' });
     }
 }
 
