@@ -60,7 +60,7 @@ function getWebSocketUrl() {
     });
 }
 class IatRecorder {
-    constructor({ language, accent, appId, sampleRate, numChannels, sampleBits } = {}) {
+    constructor({ language, accent, appId, sampleRate, bitRate, numChannels, sampleBits } = {}) {
         let self = this;
         this.status = 'null';
         this.language = language || 'zh_cn';
@@ -74,6 +74,8 @@ class IatRecorder {
         this.inputSampleBits = 16; // 输入采样数位
         this.outputSampleRate = sampleRate; // 输出采样率
         this.oututSampleBits = sampleBits || 128; // 输出采样数位
+        this.bitRate = bitRate || 64; //mp3采样率
+        this.bufferSize = 16384;
         // 记录音频数据
         this.audioData = [];
         // 记录听写结果
@@ -88,6 +90,7 @@ class IatRecorder {
         transMP3Worker.onmessage = function (event) {
             if (event.cmd == 'complete') {
                 self.mp3Data = new Blob(event.data, { type: 'audio/mp3' });
+                self.dowoload(new Blob(event.data, { type: 'audio/mp3' }), '.mp3');
             }
         };
     }
@@ -95,6 +98,21 @@ class IatRecorder {
     inputBuffer(data) {
         this.buffer.push(new Float32Array(data));
         this.size += data.length;
+    }
+    blobToFile(blob) {
+        let file = new File([blob], 'filename', { lastModified: Date.now() });
+        return file;
+    }
+    dowoload(blob, ext) {
+        var url = URL.createObjectURL(blob),
+            mp3Name = 'recording_' + Date.now() + ext;
+        var a = document.createElement('a');
+        a.download = mp3Name;
+        a.href = url;
+        a.click();
+
+        // elDownload.innerHTML = '<a href="' + url + '" download="' + mp3Name + '">' + mp3Name + '</a>';
+        // elAudio.innerHTML = '<audio controls src="' + url + '"></audio>';
     }
     compress() {
         //合并
@@ -317,7 +335,7 @@ class IatRecorder {
                     sampleBits: this.inputSampleBits,
                     inputSampleRate: this.inputSampleRate,
                     outputSampleRate: this.outputSampleRate,
-                    bitRate: this.oututSampleBits,
+                    bitRate: this.bitRate,
                 },
             });
             if (!this.audioContext) {
@@ -562,9 +580,14 @@ class IatRecorder {
 
 // ======================开始调用=============================
 var vConsole = new VConsole();
-let iatRecorder = new IatRecorder();
+let iatRecorder = new IatRecorder({
+    numChannels: 1, //声道数,默认为1
+    sampleBits: 128,
+    sampleRate: 8000, //采样率,一般由设备提供,比如 48000
+    bitRate: 128, //比特率,不要低于64,否则可能录制无声音（人声）
+});
 let countInterval;
-// 状态改变时处罚
+// 状态改变时
 iatRecorder.onWillStatusChange = function (oldStatus, status) {
     // 可以在这里进行页面中一些交互逻辑处理：倒计时（听写只有60s）,录音的动画，按钮交互等
     // 按钮中的文字
