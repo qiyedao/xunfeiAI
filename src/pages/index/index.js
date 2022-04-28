@@ -28,6 +28,7 @@ import VConsole from 'vconsole';
 import 'js/jquery.js';
 import MP3Worker from 'js/encodemp3.worker.js';
 import TransWorker from 'js/transcode.worker.js';
+import Demo from 'js/demo.js';
 import './index.css';
 let transMP3Worker = new MP3Worker();
 let transWorker = new TransWorker();
@@ -35,7 +36,7 @@ let transWorker = new TransWorker();
 const APPID = 'c4e048be';
 const API_SECRET = 'NzEyODMxNTRiODRiNjZlOGRiYWE3NmNh';
 const API_KEY = '5abbbd3f78427cfaa12fd9aea3512085';
-
+let demo = new Demo();
 /**
  * 获取websocket url
  * 该接口需要后端提供，这里为了方便前端处理
